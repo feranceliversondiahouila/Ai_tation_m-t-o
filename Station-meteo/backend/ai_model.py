@@ -1,100 +1,108 @@
 # ============================================================
-# 1. IMPORTS & GESTION DES CHEMINS
+# 1. IMPORTS & GESTION PROPRE DES CHEMINS
 # ============================================================
 
-# Bibliothèques Python intégrées
+# os :
+# permet de manipuler les fichiers et dossiers
 import os
+
+# sys :
+# permet de modifier les chemins utilisés par Python
+# pour rechercher les modules à importer
 import sys
 
-# ------------------------------------------------------------
+
+# ============================================================
+# IDENTIFICATION DES DOSSIERS DU PROJET
+# ============================================================
+
 # __file__
-# -> chemin du fichier actuel
+# contient le chemin du fichier actuel
 #
 # Exemple :
-# C:/Projet/backend/ai_model.py
+# C:/Station-meteo/backend/ai_model.py
 #
-# os.path.abspath(__file__)
-# -> transforme en chemin absolu
-#
-# os.path.dirname(...)
-# -> récupère uniquement le dossier parent
-# ------------------------------------------------------------
+# dirname() récupère uniquement le dossier
 
 CURRENT_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-# ------------------------------------------------------------
-# Ajout de dossiers au PYTHONPATH
+# Remonte d'un niveau :
 #
-# Pourquoi ?
+# backend
+#   ↑
+# Station-meteo
 #
-# Python recherche les modules dans plusieurs dossiers.
-# Si data_generator.py est dans un dossier "data",
-# Python risque de ne pas le trouver.
-#
-# sys.path.append(...) ajoute donc de nouveaux dossiers
-# où Python pourra chercher les modules.
-# ------------------------------------------------------------
+# ROOT_DIR correspond à la racine du projet
+
+ROOT_DIR = os.path.dirname(
+    CURRENT_DIR
+)
+
+
+# ============================================================
+# AJOUT DES DOSSIERS AU PYTHONPATH
+# ============================================================
+
+# Cela permet à Python de retrouver
+# correctement les modules du projet.
+
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
+
+if CURRENT_DIR not in sys.path:
+    sys.path.append(CURRENT_DIR)
+
+# Ajout préventif du dossier data
 
 sys.path.append(
     os.path.join(CURRENT_DIR, "data")
 )
 
 sys.path.append(
-    os.path.join(CURRENT_DIR, "..", "data")
+    os.path.join(ROOT_DIR, "data")
 )
+
 
 # ============================================================
 # IMPORTS DES LIBRAIRIES EXTERNES
 # ============================================================
 
-# Sauvegarde et chargement des modèles IA
+# Sauvegarde et chargement du modèle IA
 import joblib
 
-# Manipulation des tableaux de données
+# Manipulation de tableaux de données
 import pandas as pd
 
 # Algorithme Machine Learning
 from sklearn.ensemble import RandomForestRegressor
 
+
 # ============================================================
 # IMPORT DU DATASET
 # ============================================================
 
-# ------------------------------------------------------------
-# On essaye plusieurs chemins d'import.
-#
-# Cas 1 :
-# data_generator.py est dans le même dossier
-#
-# Cas 2 :
-# data_generator.py est dans /data
-#
-# Cela évite les erreurs :
-# ModuleNotFoundError
-# ------------------------------------------------------------
+# Le try/except permet de gérer plusieurs
+# organisations possibles du projet.
 
 try:
 
-    from data_generator import dataset
+    from data.data_generator import dataset
 
 except ModuleNotFoundError:
 
-    from data.data_generator import dataset
+    from data_generator import dataset
 
 
 # ============================================================
-# 2. EMPLACEMENT DU MODÈLE
+# 2. EMPLACEMENT DU MODÈLE IA
 # ============================================================
 
-# ------------------------------------------------------------
-# Fichier dans lequel sera sauvegardé
-# le modèle entraîné.
+# Localisation du modèle entraîné
 #
 # Exemple :
 # backend/local_model.pkl
-# ------------------------------------------------------------
 
 MODEL_PATH = os.path.join(
     CURRENT_DIR,
@@ -107,25 +115,26 @@ MODEL_PATH = os.path.join(
 # ============================================================
 
 def train_and_save_model():
-
     """
     Cette fonction :
 
-    1. Crée les données
-    2. Crée l'IA
-    3. Entraîne l'IA
-    4. Sauvegarde l'IA
+    1. Génère les données d'entraînement
+    2. Crée un modèle RandomForest
+    3. Entraîne le modèle
+    4. Sauvegarde le modèle sur le disque
     """
 
     print(
         "Génération des données d'entraînement..."
     )
 
-    # Dataset généré automatiquement
+    # Création du dataset
     #
-    # X = entrées
-    # Y = résultats attendus
-    X, Y = dataset(n_samples=2000)
+    # X = variables d'entrée
+    # Y = valeurs à prédire
+    X, Y = dataset(
+        n_samples=2000
+    )
 
     print(
         "Entraînement du modèle RandomForestRegressor..."
@@ -133,20 +142,14 @@ def train_and_save_model():
 
     # Création du modèle IA
     #
-    # n_estimators=60
-    # -> 60 arbres de décision
-    #
-    # random_state=42
-    # -> rend l'entraînement reproductible
+    # n_estimators = nombre d'arbres
+    # random_state = résultat reproductible
     model = RandomForestRegressor(
         n_estimators=60,
         random_state=42
     )
 
-    # Phase d'apprentissage
-    #
-    # Le modèle observe :
-    # X -> Y
+    # Apprentissage
     model.fit(X, Y)
 
     # Sauvegarde du modèle
@@ -170,29 +173,22 @@ def calculate_smart_indexes(
     wind_speed: float,
     rain_prob: float
 ) -> dict:
-
     """
     Transforme des données météo
-    en conseils compréhensibles
-    pour un utilisateur.
+    en conseils lisibles par un utilisateur.
     """
 
-    # --------------------------------------------------------
-    # CONFORT THERMIQUE
-    # --------------------------------------------------------
+    # ========================================================
+    # SCORE DE CONFORT THERMIQUE
+    # ========================================================
     #
-    # Température idéale :
-    # 22°C
+    # Température idéale : 22°C
     #
-    # Plus la température s'éloigne de 22°C,
+    # Plus on s'en éloigne,
     # plus le score diminue.
     #
-    # max(0, ...)
-    # empêche une valeur négative.
-    #
-    # min(100, ...)
-    # empêche une valeur supérieure à 100.
-    # --------------------------------------------------------
+    # Le score est toujours maintenu
+    # entre 0 et 100.
 
     thermal_comfort = max(
         0,
@@ -206,30 +202,38 @@ def calculate_smart_indexes(
         )
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CONSEIL VESTIMENTAIRE
-    # --------------------------------------------------------
+    # ========================================================
 
     if temp < 8:
 
-        clothing = "Manteau chaud et Bonnet"
+        clothing = (
+            "Manteau chaud et Bonnet"
+        )
 
     elif temp < 18:
 
-        clothing = "Veste légère ou Pull"
+        clothing = (
+            "Veste légère ou Pull"
+        )
 
     else:
 
-        clothing = "T-shirt et Tenue légère"
+        clothing = (
+            "T-shirt et Tenue légère"
+        )
 
-    # Risque de pluie
+    # Ajouter un parapluie si risque important
     if rain_prob > 50:
 
-        clothing += " + Parapluie / Imperméable"
+        clothing += (
+            " + Parapluie / Imperméable"
+        )
 
-    # --------------------------------------------------------
+    # ========================================================
     # ACTIVITÉS EXTÉRIEURES
-    # --------------------------------------------------------
+    # ========================================================
 
     if rain_prob > 60 or wind_speed > 50:
 
@@ -243,25 +247,31 @@ def calculate_smart_indexes(
             "Excellente journée pour sortir !"
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CONSEIL D'ARROSAGE
-    # --------------------------------------------------------
+    # ========================================================
 
     if rain_prob > 40:
 
-        watering = "Non (Pluie prévue)"
+        watering = (
+            "Non (Pluie prévue)"
+        )
 
     elif humidity < 60:
 
-        watering = "Oui (Temps sec)"
+        watering = (
+            "Oui (Temps sec)"
+        )
 
     else:
 
-        watering = "Optionnel"
+        watering = (
+            "Optionnel"
+        )
 
-    # --------------------------------------------------------
+    # ========================================================
     # RETOUR DES CONSEILS
-    # --------------------------------------------------------
+    # ========================================================
 
     return {
 
@@ -278,7 +288,9 @@ def calculate_smart_indexes(
             watering,
 
         "wind_risk":
-            "Fort" if wind_speed > 45 else "Faible"
+            "Fort"
+            if wind_speed > 45
+            else "Faible"
     }
 
 
@@ -289,40 +301,39 @@ def calculate_smart_indexes(
 def predict_weather_advanced(
     features: dict
 ) -> dict:
-
     """
-    Fonction principale du modèle IA.
+    Fonction principale de prédiction.
 
     Elle :
-    - charge le modèle
-    - effectue une prédiction
-    - calcule les conseils
+
+    1. Vérifie si le modèle existe
+    2. Charge le modèle
+    3. Effectue une prédiction
+    4. Génère des conseils météo
     """
 
-    # --------------------------------------------------------
-    # Si le modèle n'existe pas encore,
-    # on l'entraîne automatiquement.
-    # --------------------------------------------------------
-
-    if not os.path.exists(MODEL_PATH):
-
+    # Si le modèle n'existe pas
+    # l'entraîner automatiquement
+    if not os.path.exists(
+        MODEL_PATH
+    ):
         train_and_save_model()
 
-    # Chargement du modèle sauvegardé
-    model = joblib.load(MODEL_PATH)
+    # Chargement du modèle
+    model = joblib.load(
+        MODEL_PATH
+    )
 
-    # --------------------------------------------------------
-    # Transformation du dictionnaire
-    # en DataFrame Pandas.
-    #
-    # Scikit-Learn préfère travailler
-    # avec des tableaux.
-    # --------------------------------------------------------
+    # Conversion du dictionnaire
+    # en DataFrame Pandas
+    input_df = pd.DataFrame(
+        [features]
+    )
 
-    input_df = pd.DataFrame([features])
-
-    # L'IA effectue une prédiction
-    preds = model.predict(input_df)[0]
+    # Prédiction
+    preds = model.predict(
+        input_df
+    )[0]
 
     # Extraction des résultats
     pred_temp = preds[0]
@@ -330,7 +341,7 @@ def predict_weather_advanced(
     pred_wind = preds[2]
     rain_prob = preds[3]
 
-    # Calcul des conseils intelligents
+    # Calcul des conseils logiciels
     smart_indexes = calculate_smart_indexes(
         features["temp"],
         features["humidity"],
@@ -338,7 +349,7 @@ def predict_weather_advanced(
         rain_prob
     )
 
-    # Structure finale renvoyée
+    # Réponse structurée
     return {
 
         "predictions_1h": {
@@ -369,20 +380,15 @@ def predict_temperature_local(
     lat: float,
     lon: float
 ) -> float:
-
     """
-    Fonction simplifiée appelée
+    Fonction de secours appelée
     lorsque l'application n'a plus Internet.
     """
 
-    # --------------------------------------------------------
-    # Création de données météo fictives.
+    # Données simulées
     #
-    # ATTENTION :
-    # lat et lon ne sont actuellement
-    # pas utilisées.
-    # --------------------------------------------------------
-
+    # Ces valeurs servent d'entrée
+    # au modèle IA local.
     sample_features = {
 
         "temp": 18.0,
@@ -392,26 +398,30 @@ def predict_temperature_local(
         "wind_speed": 10.0
     }
 
-    # Appel de l'IA
+    # Appel du moteur IA principal
     res = predict_weather_advanced(
         sample_features
     )
 
-    # Retourne seulement
-    # la température prévue.
-    return res["predictions_1h"]["temp_1h"]
+    # Retourne uniquement
+    # la température prévue dans 1 heure
+    return res["predictions_1h"][
+        "temp_1h"
+    ]
 
 
 # ============================================================
-# 7. POINT D'ENTRÉE
+# 7. POINT D'ENTRÉE DU PROGRAMME
 # ============================================================
 
-# Ce bloc s'exécute uniquement si :
+# Ce bloc s'exécute uniquement si
+# le fichier est lancé directement.
+#
+# Exemple :
 #
 # python ai_model.py
-#
-# est lancé directement.
 
 if __name__ == "__main__":
 
+    # Lance l'entraînement du modèle
     train_and_save_model()
