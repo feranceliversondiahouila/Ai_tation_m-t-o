@@ -1,0 +1,41 @@
+# ============================================================
+# 1. IMAGE DE BASE
+# ============================================================
+# Utilisation d'une image Python 3.11 légère (slim) basée sur Debian
+FROM python:3.11-slim
+
+# Évite la création de fichiers .pyc et force l'affichage immédiat des logs
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# ============================================================
+# 2. DOSSIER DE TRAVAIL
+# ============================================================
+WORKDIR /app
+
+# ============================================================
+# 3. INSTALLATION DES DÉPENDANCES
+# ============================================================
+# On copie d'abord le fichier requirements.txt pour profiter du cache Docker
+COPY requirements.txt .
+
+# Installation des dépendances sans conserver le cache pip pour garder une image légère
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ============================================================
+# 4. COPIE DU CODE SOURCE
+# ============================================================
+# Copie l'ensemble des scripts Python du backend dans le conteneur
+COPY . .
+
+# ============================================================
+# 5. EXPOSITION DU PORT
+# ============================================================
+# fastapi/uvicorn écoutera sur le port 8000
+EXPOSE 8000
+
+# ============================================================
+# 6. COMMANDE DE DÉMARRAGE
+# ============================================================
+# Démarrage du serveur Uvicorn accessible de l'extérieur du conteneur (0.0.0.0)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
