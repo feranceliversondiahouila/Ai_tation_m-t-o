@@ -1,5 +1,18 @@
 # Ai_station_m-t-o
-Il s'agit d'un projet de fin d'année donné par l'université, qui implique la réalisation d'une station de météo intelligente. 
+
+Ce projet constitue le travail de fin d’année universitaire, dont l’objectif est de concevoir et déployer une station météo intelligente, capable d’exploiter à la fois des données locales et des sources externes pour fournir une visualisation et une analyse météorologique avancée.
+S’appuyant sur une architecture 100 % logicielle, conteneurisée via Docker, la station fonctionne en mode Edge AI, permettant au système de rester opérationnel même en absence de connexion réseau grâce à un modèle d’IA embarqué .
+
+L’application inclut un globe terrestre 3D interactif permettant de visualiser en temps réel la température, l’humidité et la force du vent selon les régions du monde .
+Elle intègre également une analyse prédictive locale, capable d’anticiper les risques météo (pluie, tempête, stabilité) grâce à un modèle de Machine Learning exécuté directement sur la machine de l’utilisateur .
+
+Le système est conçu pour fonctionner en mode hybride :
+
+Mode connecté, où les données sont synchronisées avec des API externes comme Open‑Meteo .
+
+Mode hors‑ligne, où l’application bascule automatiquement sur la base SQLite locale et le modèle IA embarqué, garantissant une continuité de service sans erreur réseau .
+
+L’ensemble repose sur une architecture multi‑conteneurs orchestrée par Docker Compose, comprenant un backend FastAPI, un frontend Streamlit/PyDeck, ainsi qu’un module IA basé sur Scikit‑Learn .
 
 ---
 
