@@ -1,0 +1,21 @@
+# Image Python stable et équilibrée
+FROM python:3.11-slim
+
+# Répertoire de travail de base dans le conteneur
+WORKDIR /app
+
+# Copie et installation des dépendances Python
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copie de TOUTE la structure du projet (backend + data + frontend)
+COPY . .
+
+# On positionne le répertoire de travail dans backend pour exécuter Uvicorn
+WORKDIR /app/backend
+
+# Exposition du port de l'API FastAPI
+EXPOSE 8000
+
+# Commande de lancement du serveur Backend
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

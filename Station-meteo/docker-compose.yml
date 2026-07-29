@@ -1,0 +1,22 @@
+services:
+  # Service Backend (API FastAPI)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: station_meteo_backend
+    ports:
+      - "8000:8000"
+    restart: always
+
+  # Service Frontend (Serveur Web Nginx pour servir le HTML/CSS/JS)
+  frontend:
+    image: nginx:alpine
+    container_name: station_meteo_frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: always

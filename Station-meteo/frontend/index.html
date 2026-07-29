@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Station Météo Connectée & Edge AI</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Chart.js pour les graphiques -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Globe 3D Library -->
+    <script src="https://unpkg.com/globe.gl"></script>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <!-- BARRE DE RECHERCHE & TOPBAR -->
+        <header class="topbar">
+            <h1>🌤️ Station Météo Connectée</h1>
+            
+            <div class="search-box">
+                <input type="text" id="city-input" placeholder="Entrez une ville (ex: Pointe-Noire, Béthune...)..." value="Pointe-Noire">
+                <button id="search-btn">Rechercher</button>
+            </div>
+            
+            <div id="status-badge" class="badge online">🌐 Mode En Ligne</div>
+        </header>
+
+        <!-- INFORMATIONS PRINCIPALES SUR LA VILLE -->
+        <section class="city-info">
+            <h2 id="city-name">Pointe-Noire</h2>
+            <p id="geo-coords">Latitude: -- | Longitude: --</p>
+        </section>
+
+        <!-- CARTES DE MÉTRIQUES -->
+        <section class="cards-grid">
+            <div class="card">
+                <span class="card-icon">🌡️</span>
+                <div class="card-data">
+                    <span class="card-title">Température</span>
+                    <span class="card-value" id="temp-val">-- °C</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <span class="card-icon">💧</span>
+                <div class="card-data">
+                    <span class="card-title">Humidité</span>
+                    <span class="card-value" id="humidity-val">-- %</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <span class="card-icon">💨</span>
+                <div class="card-data">
+                    <span class="card-title">Vent</span>
+                    <span class="card-value" id="wind-val">-- km/h</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <span class="card-icon">🌅</span>
+                <div class="card-data">
+                    <span class="card-title">Lever du Soleil</span>
+                    <span class="card-value" id="sunrise-val">--:--</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <span class="card-icon">🌇</span>
+                <div class="card-data">
+                    <span class="card-title">Coucher du Soleil</span>
+                    <span class="card-value" id="sunset-val">--:--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- GRAPHIQUE MÉTÉO (-48h à +24h) -->
+        <section class="chart-section">
+            <h3>📊 Évolution Temporelle (-48h ➔ Maintenant ➔ +24h)</h3>
+            <div class="chart-container">
+                <canvas id="weatherChart"></canvas>
+            </div>
+        </section>
+
+        <!-- GLOBE 3D INTERACTIF -->
+        <section class="globe-section">
+            <h3>🌍 Vue Globale 3D & Températures</h3>
+            <div id="globeViz"></div>
+        </section>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
