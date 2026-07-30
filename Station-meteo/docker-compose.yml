@@ -14,7 +14,7 @@ services:
     image: nginx:alpine
     container_name: station_meteo_frontend
     ports:
-      - "80:80"
+      - "1200:80"
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
     depends_on:

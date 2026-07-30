@@ -1,40 +1,95 @@
-const BACKEND_URL = "http://127.0.0.1:8000/weather";
+const BACKEND_URL = "http://127.0.0.1:8000";
 let weatherChart = null;
-let myGlobe = null;
+let currentWeatherData = null;   // dernière réponse complète de l'API
+let currentOverlay = "";          // couche Windy active ("" = vue d'ensemble)
 
-// Éléments du DOM
+// ============================================================
+// ICÔNES MÉTÉO
+// ============================================================
+const WEATHER_ICONS = {
+    clear: "☀️", mostly_clear: "🌤️", partly_cloudy: "⛅", cloudy: "☁️",
+    fog: "🌫️", drizzle: "🌦️", rain: "🌧️", freezing_rain: "🌧️",
+    snow: "❄️", showers: "🌧️", snow_showers: "🌨️", storm: "⛈️",
+};
+function iconFor(label) { return WEATHER_ICONS[label] || "⛅"; }
+
+const WIND_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+function windDirLabel(deg) {
+    if (deg === undefined || deg === null) return "--";
+    return WIND_DIRECTIONS[Math.round(deg / 45) % 8];
+}
+
+const DAY_NAMES_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+
+// ============================================================
+// ÉLÉMENTS DU DOM
+// ============================================================
 const cityInput = document.getElementById("city-input");
-const searchBtn = document.getElementById("search-btn");
+const searchForm = document.getElementById("search-form");
+const quickCitiesEl = document.getElementById("quick-cities");
+const layerSwitchEl = document.getElementById("layer-switch");
+const mapFrame = document.getElementById("weather-map");
 
-// Charger la météo au lancement de la page
 document.addEventListener("DOMContentLoaded", () => {
+    loadQuickCities();
     fetchWeather(cityInput.value);
 });
 
-// Recherche au clic sur le bouton
-searchBtn.addEventListener("click", () => {
+searchForm.addEventListener("submit", (e) => {
+    e.preventDefault();
     const city = cityInput.value.trim();
     if (city) fetchWeather(city);
 });
 
-// Touche Entrée dans l'input
-cityInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-        searchBtn.click();
-    }
+layerSwitchEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-overlay]");
+    if (!btn) return;
+    currentOverlay = btn.dataset.overlay;
+    [...layerSwitchEl.children].forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    updateMap();
 });
 
-// 1. Récupération des données FastAPI
+// ============================================================
+// VILLES RAPIDES
+// ============================================================
+async function loadQuickCities() {
+    try {
+        const res = await fetch(`${BACKEND_URL}/cities`);
+        const cities = await res.json();
+
+        quickCitiesEl.innerHTML = "";
+        cities.forEach(c => {
+            const btn = document.createElement("button");
+            btn.textContent = c.name;
+            btn.addEventListener("click", () => {
+                cityInput.value = c.name;
+                fetchWeather(c.name);
+                [...quickCitiesEl.children].forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+            });
+            quickCitiesEl.appendChild(btn);
+        });
+    } catch (e) {
+        console.error("Impossible de charger la liste des villes rapides :", e);
+    }
+}
+
+// ============================================================
+// RÉCUPÉRATION DES DONNÉES MÉTÉO
+// ============================================================
 async function fetchWeather(city) {
     try {
-        const response = await fetch(`${BACKEND_URL}?city=${encodeURIComponent(city)}`);
+        const response = await fetch(`${BACKEND_URL}/weather?city=${encodeURIComponent(city)}`);
         const data = await response.json();
+        currentWeatherData = data;
 
-        // Mise à jour de la topbar & ville
+        // -- En-tête ville --
         document.getElementById("city-name").textContent = data.city;
-        document.getElementById("geo-coords").textContent = 
+        document.getElementById("geo-coords").textContent =
             `Latitude : ${data.coordinates.latitude} | Longitude : ${data.coordinates.longitude}`;
 
+        // -- Badge de statut --
         const badge = document.getElementById("status-badge");
         if (data.source.includes("Online")) {
             badge.textContent = "🌐 Mode En Ligne";
@@ -44,23 +99,47 @@ async function fetchWeather(city) {
             badge.className = "badge offline";
         }
 
-        // Mise à jour des cartes météo
-        document.getElementById("temp-val").textContent = `${data.now.temperature} °C`;
-        document.getElementById("humidity-val").textContent = `${data.now.humidity} %`;
-        document.getElementById("wind-val").textContent = `${data.now.wind_speed} km/h`;
-        document.getElementById("sunrise-val").textContent = data.now.sunrise || "N/A";
-        document.getElementById("sunset-val").textContent = data.now.sunset || "N/A";
+        // -- Conditions actuelles --
+        const now = data.now;
+        document.getElementById("now-icon").textContent = iconFor(now.weather_label);
+        document.getElementById("now-label").textContent = now.weather_label ? now.weather_label.replace("_", " ") : "--";
+        document.getElementById("temp-val").textContent = `${now.temperature} °C`;
+        document.getElementById("humidity-val").textContent = `${now.humidity} %`;
+        document.getElementById("wind-val").textContent = `${now.wind_speed} km/h`;
+        document.getElementById("wind-dir-val").textContent = windDirLabel(now.wind_direction);
+        document.getElementById("pressure-val").textContent = `${now.pressure ?? "--"} hPa`;
+        document.getElementById("cloud-val").textContent = `${now.cloud_cover ?? "--"} %`;
+        document.getElementById("rain-val").textContent = `${now.rain_probability ?? "--"} %`;
+        document.getElementById("sunrise-val").textContent = now.sunrise || "N/A";
+        document.getElementById("sunset-val").textContent = now.sunset || "N/A";
 
-        // Graphique Chart.js
-        renderChart(data.timeline_hourly);
+        // -- Prédiction IA +1h --
+        if (data.predictions_1h) {
+            const p = data.predictions_1h;
+            document.getElementById("pred-temp").textContent = `${p.temp_1h}°C`;
+            document.getElementById("pred-hum").textContent = `${p.humidity_1h}%`;
+            document.getElementById("pred-wind").textContent = `${p.wind_speed_1h} km/h`;
+            document.getElementById("pred-rain").textContent = `${p.rain_probability}%`;
+        }
 
-        // Globe 3D
-        update3DGlobe(
-            data.coordinates.latitude, 
-            data.coordinates.longitude, 
-            data.city, 
-            data.now.temperature
-        );
+        // -- Indices intelligents --
+        if (data.smart_indexes) {
+            const s = data.smart_indexes;
+            document.getElementById("idx-comfort").textContent = s.thermal_comfort_score;
+            document.getElementById("idx-clothing").textContent = s.clothing_advice;
+            document.getElementById("idx-activity").textContent = s.outdoor_activity;
+            document.getElementById("idx-watering").textContent = s.plant_watering_needed;
+            document.getElementById("idx-wind-risk").textContent = s.wind_risk;
+        }
+
+        // -- Prévisions cliquables (avant-hier / hier / aujourd'hui / demain / ...) --
+        renderDailyForecast(data.daily_forecast || [], data.today_date);
+
+        // -- Sélectionne "aujourd'hui" par défaut --
+        selectDay(data.today_date);
+
+        // -- Carte Windy centrée sur la ville --
+        updateMap();
 
     } catch (error) {
         console.error("Erreur lors du fetch de l'API :", error);
@@ -68,40 +147,113 @@ async function fetchWeather(city) {
     }
 }
 
-// 2. Rendu du graphique temporel Chart.js
-function renderChart(timelineData) {
-    if (!timelineData) return;
+// ============================================================
+// PRÉVISIONS CLIQUABLES (bandeau du haut)
+// ============================================================
+function renderDailyForecast(days, todayDate) {
+    const container = document.getElementById("days-scroll");
+    container.innerHTML = "";
 
-    const history = timelineData.history_past_48h || [];
-    const current = timelineData.current_hour ? [timelineData.current_hour] : [];
-    const forecast = timelineData.forecast_next_24h || [];
+    if (!days.length) {
+        container.innerHTML = `<p class="placeholder">Prévisions indisponibles en mode hors-ligne.</p>`;
+        return;
+    }
 
-    const fullData = [...history, ...current, ...forecast];
+    days.forEach((d) => {
+        const date = new Date(d.date + "T00:00:00");
+        let dayName;
+        if (d.date === todayDate) dayName = "Aujourd'hui";
+        else dayName = DAY_NAMES_FR[date.getDay()] + " " + date.getDate();
 
-    const labels = fullData.map(item => {
-        const date = new Date(item.time);
-        return `${date.getHours()}h (${date.getDate()}/${date.getMonth()+1})`;
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "day-card";
+        card.dataset.date = d.date;
+        card.setAttribute("aria-pressed", d.date === todayDate ? "true" : "false");
+        card.innerHTML = `
+            <span class="d-name">${dayName}</span>
+            <span class="d-icon">${iconFor(d.weather_label)}</span>
+            <span class="d-temp">${Math.round(d.temp_max)}° <span class="lo">${Math.round(d.temp_min)}°</span></span>
+        `;
+        card.addEventListener("click", () => selectDay(d.date));
+        container.appendChild(card);
+    });
+}
+
+// ============================================================
+// SÉLECTION D'UN JOUR : met à jour vue horaire + graphique
+// ============================================================
+function selectDay(dateStr) {
+    if (!currentWeatherData) return;
+
+    // Met en évidence la carte du jour choisi
+    document.querySelectorAll("#days-scroll .day-card").forEach(el => {
+        el.setAttribute("aria-pressed", el.dataset.date === dateStr ? "true" : "false");
     });
 
-    const temps = fullData.map(item => item.temp_c);
-    const ctx = document.getElementById("weatherChart").getContext("2d");
+    const hourlyByDate = currentWeatherData.hourly_by_date || {};
+    const hours = hourlyByDate[dateStr] || [];
 
-    if (weatherChart) {
-        weatherChart.destroy();
+    const isToday = dateStr === currentWeatherData.today_date;
+    const label = isToday ? "Aujourd'hui" : new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" });
+
+    document.getElementById("hourly-title").textContent = `🕒 Vue horaire — ${label}`;
+    document.getElementById("chart-title").textContent = `📊 Évolution de la température — ${label}`;
+
+    renderHourlyStrip(hours);
+    renderChart(hours);
+}
+
+// ============================================================
+// VUE HORAIRE (pour le jour sélectionné)
+// ============================================================
+function renderHourlyStrip(hours) {
+    const container = document.getElementById("hours-scroll");
+    container.innerHTML = "";
+
+    if (!hours.length) {
+        container.innerHTML = `<p class="placeholder">Vue horaire indisponible pour ce jour (mode hors-ligne ou date hors plage).</p>`;
+        return;
     }
+
+    hours.forEach(item => {
+        const date = new Date(item.time);
+        const el = document.createElement("div");
+        el.className = "hour-item";
+        el.innerHTML = `
+            <span class="h-time">${item.is_now ? "Maintenant" : date.getHours() + "h"}</span>
+            <span class="h-icon">${iconFor(item.weather_label)}</span>
+            <span class="h-temp">${Math.round(item.temp_c)}°</span>
+            <span class="h-rain">💧${item.rain_prob}%</span>
+        `;
+        container.appendChild(el);
+    });
+}
+
+// ============================================================
+// GRAPHIQUE CHART.JS (pour le jour sélectionné)
+// ============================================================
+function renderChart(hours) {
+    const ctx = document.getElementById("weatherChart").getContext("2d");
+    if (weatherChart) weatherChart.destroy();
+
+    if (!hours.length) return;
+
+    const labels = hours.map(item => `${new Date(item.time).getHours()}h`);
+    const temps = hours.map(item => item.temp_c);
 
     const gradient = ctx.createLinearGradient(0, 0, 0, 300);
     gradient.addColorStop(0, "rgba(59, 130, 246, 0.5)");
     gradient.addColorStop(1, "rgba(59, 130, 246, 0.0)");
 
     weatherChart = new Chart(ctx, {
-        type: 'line',
+        type: "line",
         data: {
-            labels: labels,
+            labels,
             datasets: [{
-                label: 'Température (°C)',
+                label: "Température (°C)",
                 data: temps,
-                borderColor: '#3b82f6',
+                borderColor: "#3b82f6",
                 borderWidth: 3,
                 backgroundColor: gradient,
                 fill: true,
@@ -114,70 +266,40 @@ function renderChart(timelineData) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: {
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: '#8b9bb4' }
-                },
-                y: {
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: '#8b9bb4' }
-                }
+                x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b9bb4", maxTicksLimit: 8 } },
+                y: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b9bb4" } }
             },
-            plugins: {
-                legend: { labels: { color: '#ffffff' } }
-            }
+            plugins: { legend: { labels: { color: "#ffffff" } } }
         }
     });
 }
 
-// 3. Rendu et animation du Globe 3D
-function update3DGlobe(lat, lon, cityName, temp) {
-    const container = document.getElementById('globeViz');
+// ============================================================
+// CARTE MÉTÉO (Windy, intégrée en iframe)
+// ============================================================
+// overlay : "" (vue d'ensemble), "temp", "wind", "rh" (humidité)
+function updateMap() {
+    if (!currentWeatherData) return;
+    const { latitude, longitude } = currentWeatherData.coordinates;
 
-    const markerData = [{
-        lat: lat,
-        lng: lon,
-        name: cityName,
-        temp: `${temp} °C`
-    }];
+    const params = new URLSearchParams({
+        lat: latitude,
+        lon: longitude,
+        detailLat: latitude,
+        detailLon: longitude,
+        zoom: 7,
+        level: "surface",
+        overlay: currentOverlay || "wind",
+        menu: "",
+        message: "",
+        marker: "true",
+        calendar: "now",
+        pressure: "",
+        type: "map",
+        location: "coordinates",
+        metricWind: "km/h",
+        metricTemp: "default",
+    });
 
-    // Si le globe est déjà créé, on fait pivoter la vue vers la nouvelle ville
-    if (myGlobe) {
-        myGlobe
-            .pointsData(markerData)
-            .labelsData(markerData)
-            .pointOfView({ lat: lat, lng: lon, altitude: 2 }, 1500);
-        return;
-    }
-
-    // Création initiale du Globe 3D avec Globe.gl
-    myGlobe = Globe()(container)
-        .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
-        .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
-        .backgroundColor('#0b0f19')
-        .width(container.clientWidth)
-        .height(450)
-        
-        // Point lumineux sur les coordonnées
-        .pointsData(markerData)
-        .pointAltitude(0.05)
-        .pointColor(() => '#3b82f6')
-        .pointRadius(0.7)
-        
-        // Étiquette 3D avec le nom de la ville et sa température
-        .labelsData(markerData)
-        .labelLat(d => d.lat)
-        .labelLng(d => d.lng)
-        .labelText(d => `${d.name} : ${d.temp}`)
-        .labelSize(1.8)
-        .labelDotRadius(0.4)
-        .labelColor(() => '#ffffff')
-        .labelResolution(3);
-
-    // Ajustement initial de la vue
-    myGlobe.pointOfView({ lat: lat, lng: lon, altitude: 2 });
-
-    // Activation de la rotation lente automatique
-    myGlobe.controls().autoRotate = true;
-    myGlobe.controls().autoRotateSpeed = 0.5;
+    mapFrame.src = `https://embed.windy.com/embed2.html?${params.toString()}`;
 }

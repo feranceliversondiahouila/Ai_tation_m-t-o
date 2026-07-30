@@ -2,27 +2,15 @@
 # IMPORTS
 # ============================================================
 
-# FastAPI permet de créer une API REST en Python
 from fastapi import FastAPI, Query
-
-# Middleware permettant d'autoriser des applications externes
-# (HTML, JavaScript, React, Streamlit...) à appeler l'API
 from fastapi.middleware.cors import CORSMiddleware
-
-# Permet d'effectuer des requêtes HTTP vers Open-Meteo
 import requests
-
-# Permet de manipuler les dates et heures
 from datetime import datetime
-
-# Permet de rendre certains paramètres facultatifs
 from typing import Optional
+from collections import defaultdict
 
-# Fonction qui vérifie si Internet est disponible
 from network_checker import is_network_available
-
-# Fonction IA locale utilisée lorsque le réseau est coupé
-from ai_model import predict_temperature_local
+from ai_model import predict_edge, calculate_smart_indexes
 
 
 # ============================================================
@@ -31,70 +19,41 @@ from ai_model import predict_temperature_local
 
 app = FastAPI(
     title="Station Météo IA - Backend API",
-    version="2.5"
+    version="4.0"
 )
-
-
-# ============================================================
-# CONFIGURATION CORS
-# ============================================================
-
-# Sans cette configuration :
-# Un navigateur peut bloquer les appels venant
-# d'une autre application (HTML, JS, React, etc.)
 
 app.add_middleware(
     CORSMiddleware,
-
-    # Autorise tous les domaines
-    # (pratique pour le développement)
     allow_origins=["*"],
-
-    # Autorise l'envoi d'informations d'authentification
     allow_credentials=True,
-
-    # Autorise toutes les méthodes HTTP
-    # GET, POST, PUT, DELETE...
     allow_methods=["*"],
-
-    # Autorise tous les en-têtes HTTP
     allow_headers=["*"],
 )
 
 
 # ============================================================
-# BASE DE DONNÉES LOCALE
+# BASE DE DONNÉES LOCALE DES VILLES (accès rapide, sans réseau)
 # ============================================================
 
-# Petit dictionnaire contenant des villes connues.
-# Cela évite d'appeler une API externe à chaque fois.
-
 CITIES_COORDS = {
-
-    "bethune": {
-        "name": "Béthune",
-        "lat": 50.53,
-        "lon": 2.64
-    },
-
-    "lille": {
-        "name": "Lille",
-        "lat": 50.63,
-        "lon": 3.06
-    },
-
-    "paris": {
-        "name": "Paris",
-        "lat": 48.85,
-        "lon": 2.35
-    },
-
-    "pointe-noire": {
-        "name": "Pointe-Noire",
-        "lat": -4.78,
-        "lon": 11.86
-    }
+    "bethune": {"name": "Béthune", "lat": 50.53, "lon": 2.64},
+    "lille": {"name": "Lille", "lat": 50.63, "lon": 3.06},
+    "paris": {"name": "Paris", "lat": 48.85, "lon": 2.35},
+    "lyon": {"name": "Lyon", "lat": 45.76, "lon": 4.84},
+    "marseille": {"name": "Marseille", "lat": 43.30, "lon": 5.37},
+    "toulouse": {"name": "Toulouse", "lat": 43.60, "lon": 1.44},
+    "nantes": {"name": "Nantes", "lat": 47.22, "lon": -1.55},
+    "pointe-noire": {"name": "Pointe-Noire", "lat": -4.78, "lon": 11.86},
 }
+
+
+@app.get("/cities")
+def get_cities():
+    """Liste des villes de sélection rapide, pour les boutons du frontend."""
+    return [
+        {"key": key, "name": v["name"], "lat": v["lat"], "lon": v["lon"]}
+        for key, v in CITIES_COORDS.items()
+    ]
 
 
 # ============================================================
@@ -102,78 +61,52 @@ CITIES_COORDS = {
 # ============================================================
 
 def get_coordinates_from_city(city_name: str):
-
-    """
-    Reçoit un nom de ville.
-
-    Exemple :
-        Paris
-
-    Retour :
-        latitude
-        longitude
-        nom officiel
-    """
-
-    # Nettoyage :
-    # " PARIS " devient "paris"
     city_clean = city_name.strip().lower()
 
-    # Recherche dans la base locale
     if city_clean in CITIES_COORDS:
-
         return (
             CITIES_COORDS[city_clean]["lat"],
             CITIES_COORDS[city_clean]["lon"],
             CITIES_COORDS[city_clean]["name"]
         )
 
-    # Si la ville n'existe pas,
-    # on tente une recherche Open-Meteo
     try:
-
-        # ATTENTION :
-        # Dans ton code original, cette URL contient
-        # des balises HTML <a>.
-        # Il faut uniquement conserver l'URL.
-
         geo_url = (
             f"https://geocoding-api.open-meteo.com/v1/search"
-            f"?name={city_name}"
-            f"&count=1"
-            f"&language=fr"
-            f"&format=json"
+            f"?name={city_name}&count=1&language=fr&format=json"
         )
+        res = requests.get(geo_url, timeout=2.0).json()
 
-        # Appel de l'API
-        res = requests.get(
-            geo_url,
-            timeout=2.0
-        ).json()
-
-        # Vérifie qu'un résultat existe
         if "results" in res and len(res["results"]) > 0:
-
             item = res["results"][0]
-
-            return (
-                item["latitude"],
-                item["longitude"],
-                item["name"]
-            )
+            return (item["latitude"], item["longitude"], item["name"])
 
     except Exception:
-
-        # On ignore les erreurs réseau
         pass
 
-    # Si rien n'est trouvé :
-    # coordonnées par défaut = Béthune
-    return (
-        50.53,
-        2.64,
-        city_name.capitalize()
-    )
+    return (50.53, 2.64, city_name.capitalize())
+
+
+# ============================================================
+# TRADUCTION DES CODES MÉTÉO OPEN-METEO (WMO)
+# ============================================================
+# On renvoie un code simplifié utilisé par le frontend
+# pour choisir une icône. Cela évite de dupliquer
+# la logique d'icônes côté serveur ET côté client.
+
+def weathercode_to_label(code: int) -> str:
+    mapping = {
+        0: "clear", 1: "mostly_clear", 2: "partly_cloudy", 3: "cloudy",
+        45: "fog", 48: "fog",
+        51: "drizzle", 53: "drizzle", 55: "drizzle",
+        61: "rain", 63: "rain", 65: "rain",
+        66: "freezing_rain", 67: "freezing_rain",
+        71: "snow", 73: "snow", 75: "snow", 77: "snow",
+        80: "showers", 81: "showers", 82: "showers",
+        85: "snow_showers", 86: "snow_showers",
+        95: "storm", 96: "storm", 99: "storm",
+    }
+    return mapping.get(code, "cloudy")
 
 
 # ============================================================
@@ -181,272 +114,169 @@ def get_coordinates_from_city(city_name: str):
 # ============================================================
 
 @app.get("/weather")
-
 def get_weather(
-
-    # Exemple :
-    # /weather?city=Paris
-    city: str = Query(
-        "Pointe-Noire",
-        description="Nom de la ville"
-    ),
-
-    # Coordonnées facultatives
+    city: str = Query("Pointe-Noire", description="Nom de la ville"),
     lat: Optional[float] = None,
     lon: Optional[float] = None
 ):
-
-    # ========================================================
-    # CONVERSION VILLE -> GPS
-    # ========================================================
-
-    # Si aucune coordonnée n'est fournie
     if lat is None or lon is None:
-
-        # Recherche automatique
-        lat, lon, formatted_city_name = (
-            get_coordinates_from_city(city)
-        )
-
+        lat, lon, formatted_city_name = get_coordinates_from_city(city)
     else:
-
         formatted_city_name = city
-
-    # ========================================================
-    # TEST DE LA CONNEXION INTERNET
-    # ========================================================
 
     online = is_network_available()
 
     # ========================================================
-    # MODE CONNECTÉ
+    # MODE CONNECTÉ — vraies données Open-Meteo
     # ========================================================
-
     if online:
-
         try:
-
-            # Construction de l'URL Open-Meteo
-
             url = (
                 f"https://api.open-meteo.com/v1/forecast"
                 f"?latitude={lat}&longitude={lon}"
-                f"&past_days=2"
-                f"&forecast_days=2"
-                f"&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
-                f"&hourly=temperature_2m,relative_humidity_2m,precipitation_probability"
-                f"&daily=sunrise,sunset"
+                f"&past_days=2&forecast_days=7"
+                f"&current=temperature_2m,relative_humidity_2m,wind_speed_10m,"
+                f"wind_direction_10m,pressure_msl,cloud_cover,weather_code"
+                f"&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,"
+                f"wind_speed_10m,weather_code"
+                f"&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+                f"precipitation_probability_max,sunrise,sunset"
                 f"&timezone=auto"
             )
 
-            # Requête HTTP
-            data = requests.get(
-                url,
-                timeout=3.0
-            ).json()
+            data = requests.get(url, timeout=4.0).json()
 
-            # ====================================================
-            # MÉTÉO ACTUELLE
-            # ====================================================
-
+            # ---- Météo actuelle ----
             current_temp = data["current"]["temperature_2m"]
-
             humidity = data["current"]["relative_humidity_2m"]
-
             wind_speed = data["current"]["wind_speed_10m"]
+            wind_direction = data["current"]["wind_direction_10m"]
+            pressure = data["current"]["pressure_msl"]
+            cloud_cover = data["current"]["cloud_cover"]
+            current_weathercode = data["current"]["weather_code"]
 
-            # ====================================================
-            # LEVER ET COUCHER DU SOLEIL
-            # ====================================================
+            # ---- Lever / coucher du soleil (aujourd'hui = index 2, car past_days=2) ----
+            sunrise_raw = data["daily"]["sunrise"][2] if len(data["daily"]["sunrise"]) > 2 else "N/A"
+            sunset_raw = data["daily"]["sunset"][2] if len(data["daily"]["sunset"]) > 2 else "N/A"
+            sunrise = sunrise_raw.split("T")[1] if "T" in sunrise_raw else sunrise_raw
+            sunset = sunset_raw.split("T")[1] if "T" in sunset_raw else sunset_raw
 
-            sunrise_raw = (
-                data["daily"]["sunrise"][2]
-                if "daily" in data
-                and len(data["daily"]["sunrise"]) > 2
-                else "N/A"
-            )
-
-            sunset_raw = (
-                data["daily"]["sunset"][2]
-                if "daily" in data
-                and len(data["daily"]["sunset"]) > 2
-                else "N/A"
-            )
-
-            # Extraction de l'heure uniquement
-            sunrise = (
-                sunrise_raw.split("T")[1]
-                if "T" in sunrise_raw
-                else sunrise_raw
-            )
-
-            sunset = (
-                sunset_raw.split("T")[1]
-                if "T" in sunset_raw
-                else sunset_raw
-            )
-
-            # ====================================================
-            # DONNÉES HORAIRES
-            # ====================================================
-
-            times = data["hourly"]["time"]
-
-            temps = data["hourly"]["temperature_2m"]
-
-            humi = data["hourly"]["relative_humidity_2m"]
-
-            precip = data["hourly"].get(
-                "precipitation_probability",
-                [0] * len(times)
-            )
-
-            # ====================================================
-            # RECHERCHE DE L'HEURE ACTUELLE
-            # ====================================================
-
-            now_str = datetime.now().strftime(
-                "%Y-%m-%dT%H:00"
-            )
-
-            if now_str in times:
-                current_idx = times.index(now_str)
-            else:
-                current_idx = 48
-
-            # ====================================================
-            # HISTORIQUE DES 48 DERNIÈRES HEURES
-            # ====================================================
-
-            past_48h = [
-
+            # ---- Prévisions journalières (J-2 à J+7, cliquables) ----
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            daily_forecast = [
                 {
-                    "time": times[i],
-                    "temp_c": temps[i],
-                    "humidity": humi[i]
+                    "date": data["daily"]["time"][i],
+                    "temp_max": data["daily"]["temperature_2m_max"][i],
+                    "temp_min": data["daily"]["temperature_2m_min"][i],
+                    "rain_prob": data["daily"]["precipitation_probability_max"][i],
+                    "weather_label": weathercode_to_label(data["daily"]["weather_code"][i]),
+                    "is_today": data["daily"]["time"][i] == today_str,
                 }
-
-                for i in range(
-                    max(0, current_idx - 48),
-                    current_idx
-                )
+                for i in range(len(data["daily"]["time"]))
             ]
 
-            # ====================================================
-            # PRÉVISIONS DES 24 PROCHAINES HEURES
-            # ====================================================
+            # ---- Données horaires ----
+            times = data["hourly"]["time"]
+            temps = data["hourly"]["temperature_2m"]
+            humi = data["hourly"]["relative_humidity_2m"]
+            precip = data["hourly"].get("precipitation_probability", [0] * len(times))
+            winds = data["hourly"].get("wind_speed_10m", [wind_speed] * len(times))
+            codes = data["hourly"].get("weather_code", [current_weathercode] * len(times))
 
-            future_24h = [
+            now_str = datetime.now().strftime("%Y-%m-%dT%H:00")
+            current_idx = times.index(now_str) if now_str in times else 48
+            current_rain_prob = precip[current_idx] if current_idx < len(precip) else 0
 
-                {
-                    "time": times[i],
+            # ---- Regroupement horaire PAR JOUR (clic sur un jour = navigation) ----
+            # Permet au frontend d'afficher avant-hier / hier / aujourd'hui / demain
+            # (et tous les autres jours disponibles) en cliquant sur une carte de jour.
+            hourly_by_date = defaultdict(list)
+            for i, t in enumerate(times):
+                date_key = t.split("T")[0]
+                hourly_by_date[date_key].append({
+                    "time": t,
                     "temp_c": temps[i],
                     "humidity": humi[i],
-                    "rain_prob": precip[i]
-                }
+                    "wind_speed": winds[i],
+                    "rain_prob": precip[i],
+                    "weather_label": weathercode_to_label(codes[i]),
+                    "is_now": (i == current_idx),
+                })
 
-                for i in range(
-                    current_idx + 1,
-                    min(len(times), current_idx + 25)
-                )
-            ]
+            # ---- Prédiction +1h : on utilise directement la vraie prévision Open-Meteo ----
+            # (plus fiable qu'un modèle local, et évite tout problème de features)
+            next_idx = min(current_idx + 1, len(times) - 1)
+            predictions_1h = {
+                "temp_1h": temps[next_idx],
+                "humidity_1h": humi[next_idx],
+                "wind_speed_1h": winds[next_idx],
+                "rain_probability": precip[next_idx],
+            }
 
-            # ====================================================
-            # CONSTRUCTION DE LA RÉPONSE JSON
-            # ====================================================
+            smart_indexes = calculate_smart_indexes(
+                current_temp, humidity, wind_speed, current_rain_prob
+            )
 
             return {
-
                 "source": "Online (Open-Meteo API)",
-
                 "city": formatted_city_name,
-
-                "coordinates": {
-                    "latitude": lat,
-                    "longitude": lon
-                },
+                "coordinates": {"latitude": lat, "longitude": lon},
+                "today_date": today_str,
 
                 "now": {
-
-                    # Heure actuelle
-                    "time": (
-                        times[current_idx]
-                        if current_idx < len(times)
-                        else "N/A"
-                    ),
-
+                    "time": times[current_idx] if current_idx < len(times) else "N/A",
                     "temperature": current_temp,
-
                     "humidity": humidity,
-
                     "wind_speed": wind_speed,
-
+                    "wind_direction": wind_direction,
+                    "pressure": pressure,
+                    "cloud_cover": cloud_cover,
+                    "rain_probability": current_rain_prob,
+                    "weather_label": weathercode_to_label(current_weathercode),
                     "sunrise": sunrise,
-
-                    "sunset": sunset
+                    "sunset": sunset,
                 },
 
-                "timeline_hourly": {
+                "predictions_1h": predictions_1h,
+                "smart_indexes": smart_indexes,
 
-                    # Historique 48h
-                    "history_past_48h": past_48h,
-
-                    # Situation actuelle
-                    "current_hour": {
-
-                        "time": (
-                            times[current_idx]
-                            if current_idx < len(times)
-                            else "N/A"
-                        ),
-
-                        "temp_c": current_temp
-                    },
-
-                    # Prévision 24h
-                    "forecast_next_24h": future_24h
-                }
+                "daily_forecast": daily_forecast,
+                "hourly_by_date": hourly_by_date,
             }
 
         except Exception:
-
-            # Si Open-Meteo tombe en panne,
-            # on bascule automatiquement
-            # en mode IA locale
             online = False
 
     # ========================================================
-    # MODE HORS LIGNE (EDGE AI)
+    # MODE HORS LIGNE — Edge AI entraînée sur données IoT réelles
     # ========================================================
-
-    current_temp = round(
-        predict_temperature_local(lat, lon),
-        1
-    )
+    now_dt = datetime.now()
+    edge_result = predict_edge(now_dt.hour)
+    simulated_now = edge_result["now_simulated"]
 
     return {
-
-        "source": "Offline (Edge AI Local)",
-
+        "source": "Offline (Edge AI - modèle entraîné sur capteurs IoT réels)",
         "city": formatted_city_name,
-
-        "coordinates": {
-            "latitude": lat,
-            "longitude": lon
-        },
+        "coordinates": {"latitude": lat, "longitude": lon},
+        "today_date": now_dt.strftime("%Y-%m-%d"),
 
         "now": {
-
-            "temperature": current_temp,
-
-            # Valeurs estimées
-            "humidity": 60,
-
-            "wind_speed": 12.0,
-
-            # Valeurs de secours
+            "temperature": simulated_now["temperature"],
+            "humidity": simulated_now["humidity"],
+            # Le dataset IoT réel ne contient ni vent ni pression (capteurs d'intérieur) :
+            # valeurs par défaut clairement documentées, pas mesurées.
+            "wind_speed": 10.0,
+            "wind_direction": 180,
+            "pressure": 1013,
+            "cloud_cover": 40,
+            "rain_probability": edge_result["predictions_1h"]["rain_probability"],
+            "weather_label": "cloudy",
             "sunrise": "06:00",
+            "sunset": "21:00",
+        },
 
-            "sunset": "21:00"
-        }
+        "predictions_1h": edge_result["predictions_1h"],
+        "smart_indexes": edge_result["smart_indexes"],
+        "daily_forecast": [],
+        "hourly_by_date": {},
     }

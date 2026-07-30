@@ -5,87 +5,127 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Station Météo Connectée & Edge AI</title>
     <link rel="stylesheet" href="css/style.css">
-    <!-- Chart.js pour les graphiques -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Globe 3D Library -->
-    <script src="https://unpkg.com/globe.gl"></script>
 </head>
 <body>
 
     <div class="dashboard-container">
-        <!-- BARRE DE RECHERCHE & TOPBAR -->
+
+        <!-- TOPBAR -->
         <header class="topbar">
-            <h1>🌤️ Station Météo Connectée</h1>
-            
-            <div class="search-box">
-                <input type="text" id="city-input" placeholder="Entrez une ville (ex: Pointe-Noire, Béthune...)..." value="Pointe-Noire">
-                <button id="search-btn">Rechercher</button>
-            </div>
-            
+            <h1>🌤️ Station Météo <span>Connectée &amp; Edge AI</span></h1>
+
+            <form class="search-box" id="search-form">
+                <input type="text" id="city-input" placeholder="Rechercher une ville..." value="Pointe-Noire" autocomplete="off">
+                <button type="submit" id="search-btn" aria-label="Rechercher">🔍</button>
+            </form>
+
             <div id="status-badge" class="badge online">🌐 Mode En Ligne</div>
         </header>
 
-        <!-- INFORMATIONS PRINCIPALES SUR LA VILLE -->
-        <section class="city-info">
-            <h2 id="city-name">Pointe-Noire</h2>
-            <p id="geo-coords">Latitude: -- | Longitude: --</p>
-        </section>
+        <!-- SÉLECTION RAPIDE DE VILLES -->
+        <nav class="quick-cities" id="quick-cities" aria-label="Villes rapides"></nav>
 
-        <!-- CARTES DE MÉTRIQUES -->
-        <section class="cards-grid">
-            <div class="card">
-                <span class="card-icon">🌡️</span>
-                <div class="card-data">
-                    <span class="card-title">Température</span>
-                    <span class="card-value" id="temp-val">-- °C</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <span class="card-icon">💧</span>
-                <div class="card-data">
-                    <span class="card-title">Humidité</span>
-                    <span class="card-value" id="humidity-val">-- %</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <span class="card-icon">💨</span>
-                <div class="card-data">
-                    <span class="card-title">Vent</span>
-                    <span class="card-value" id="wind-val">-- km/h</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <span class="card-icon">🌅</span>
-                <div class="card-data">
-                    <span class="card-title">Lever du Soleil</span>
-                    <span class="card-value" id="sunrise-val">--:--</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <span class="card-icon">🌇</span>
-                <div class="card-data">
-                    <span class="card-title">Coucher du Soleil</span>
-                    <span class="card-value" id="sunset-val">--:--</span>
-                </div>
+        <!-- BANDEAU PRÉVISIONS (cliquable : avant-hier / hier / aujourd'hui / demain / ...) -->
+        <section class="forecast-strip card-panel" aria-label="Prévisions, cliquez un jour pour voir son détail">
+            <div class="days-scroll" id="days-scroll">
+                <p class="placeholder">Chargement des prévisions…</p>
             </div>
         </section>
 
-        <!-- GRAPHIQUE MÉTÉO (-48h à +24h) -->
-        <section class="chart-section">
-            <h3>📊 Évolution Temporelle (-48h ➔ Maintenant ➔ +24h)</h3>
-            <div class="chart-container">
-                <canvas id="weatherChart"></canvas>
-            </div>
-        </section>
+        <div class="main-grid">
 
-        <!-- GLOBE 3D INTERACTIF -->
-        <section class="globe-section">
-            <h3>🌍 Vue Globale 3D & Températures</h3>
-            <div id="globeViz"></div>
+            <!-- COLONNE PRINCIPALE -->
+            <div class="main-col">
+
+                <!-- CONDITIONS ACTUELLES -->
+                <section class="now-panel card-panel">
+                    <div class="now-left">
+                        <span class="now-icon" id="now-icon">⛅</span>
+                        <div>
+                            <h2 id="city-name">Pointe-Noire</h2>
+                            <p id="geo-coords">Latitude : -- | Longitude : --</p>
+                            <p class="now-label" id="now-label">--</p>
+                        </div>
+                    </div>
+                    <div class="now-temp" id="temp-val">-- °C</div>
+                </section>
+
+                <!-- CARTES DE MÉTRIQUES -->
+                <section class="cards-grid">
+                    <div class="card"><span class="card-icon">💧</span><div class="card-data"><span class="card-title">Humidité</span><span class="card-value" id="humidity-val">-- %</span></div></div>
+                    <div class="card"><span class="card-icon">💨</span><div class="card-data"><span class="card-title">Vent</span><span class="card-value" id="wind-val">-- km/h</span></div></div>
+                    <div class="card"><span class="card-icon">🧭</span><div class="card-data"><span class="card-title">Direction</span><span class="card-value" id="wind-dir-val">--</span></div></div>
+                    <div class="card"><span class="card-icon">📈</span><div class="card-data"><span class="card-title">Pression</span><span class="card-value" id="pressure-val">-- hPa</span></div></div>
+                    <div class="card"><span class="card-icon">☁️</span><div class="card-data"><span class="card-title">Nuages</span><span class="card-value" id="cloud-val">-- %</span></div></div>
+                    <div class="card"><span class="card-icon">🌧️</span><div class="card-data"><span class="card-title">Pluie</span><span class="card-value" id="rain-val">-- %</span></div></div>
+                    <div class="card"><span class="card-icon">🌅</span><div class="card-data"><span class="card-title">Lever</span><span class="card-value" id="sunrise-val">--:--</span></div></div>
+                    <div class="card"><span class="card-icon">🌇</span><div class="card-data"><span class="card-title">Coucher</span><span class="card-value" id="sunset-val">--:--</span></div></div>
+                </section>
+
+                <!-- BANDEAU HORAIRE -->
+                <section class="hourly-strip card-panel">
+                    <h3 id="hourly-title">🕒 Vue horaire — Aujourd'hui</h3>
+                    <div class="hours-scroll" id="hours-scroll"></div>
+                </section>
+
+                <!-- GRAPHIQUE -->
+                <section class="chart-section card-panel">
+                    <h3 id="chart-title">📊 Évolution de la température</h3>
+                    <div class="chart-container">
+                        <canvas id="weatherChart"></canvas>
+                    </div>
+                </section>
+            </div>
+
+            <!-- COLONNE LATÉRALE -->
+            <div class="side-col">
+
+                <!-- IA : PRÉDICTION 1H -->
+                <section class="card-panel ai-panel">
+                    <h3>🤖 Prédiction IA (+1h)</h3>
+                    <div class="ai-grid">
+                        <div class="ai-item"><span>Température</span><strong id="pred-temp">--°C</strong></div>
+                        <div class="ai-item"><span>Humidité</span><strong id="pred-hum">--%</strong></div>
+                        <div class="ai-item"><span>Vent</span><strong id="pred-wind">-- km/h</strong></div>
+                        <div class="ai-item"><span>Pluie</span><strong id="pred-rain">--%</strong></div>
+                    </div>
+                </section>
+
+                <!-- INDICES INTELLIGENTS -->
+                <section class="card-panel index-panel">
+                    <h3>🧠 Indices intelligents</h3>
+                    <ul class="index-list">
+                        <li><span>🌤️ Confort thermique</span><strong id="idx-comfort">--</strong></li>
+                        <li><span>🧥 Conseil vestimentaire</span><strong id="idx-clothing">--</strong></li>
+                        <li><span>🏃 Activité extérieure</span><strong id="idx-activity">--</strong></li>
+                        <li><span>🌿 Arrosage</span><strong id="idx-watering">--</strong></li>
+                        <li><span>🌪️ Risque de vent</span><strong id="idx-wind-risk">--</strong></li>
+                    </ul>
+                </section>
+            </div>
+        </div>
+
+        <!-- CARTE MÉTÉO INTERACTIVE (pleine largeur, en bas) -->
+        <section class="map-section card-panel">
+            <div class="map-header">
+                <h3>🗺️ Carte météo</h3>
+                <div class="layer-switch" id="layer-switch">
+                    <button data-overlay="" class="active">Vue d'ensemble</button>
+                    <button data-overlay="temp">Température</button>
+                    <button data-overlay="wind">Vent</button>
+                    <button data-overlay="rh">Humidité</button>
+                </div>
+            </div>
+            <div class="map-frame-wrap">
+                <iframe
+                    id="weather-map"
+                    title="Carte météo interactive"
+                    loading="lazy"
+                    allowfullscreen
+                ></iframe>
+            </div>
+            <p class="map-credit">Carte fournie par Windy.com</p>
         </section>
     </div>
 
