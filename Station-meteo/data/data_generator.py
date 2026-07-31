@@ -132,19 +132,19 @@ def dataset(n_samples: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame]:
     # Toutes les variables d'entrée
     X = pd.DataFrame({
 
-        'temp': temp,
+        'temperature': temp,
 
-        'humidity': humidity,
+        'humidite': humidity,
 
-        'pressure': pressure,
+        'pression': pressure,
 
-        'wind_speed': wind_speed,
+        'vitesse_vent': wind_speed,
 
-        'cloud_cover': cloud_cover,
+        'couverture_nuageuse': cloud_cover,
 
-        'hour': hour,
+        'heure': hour,
 
-        'month': month,
+        'mois': month,
 
         'latitude': latitude,
 
@@ -158,13 +158,13 @@ def dataset(n_samples: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame]:
     # Toutes les valeurs que l'IA devra apprendre
     Y = pd.DataFrame({
 
-        'pred_temp_1h': target_temp_1h,
+        'temperature_predite_1h': target_temp_1h,
 
-        'pred_humidity_1h': target_humidity_1h,
+        'humidite_predite_1h': target_humidity_1h,
 
-        'pred_wind_1h': target_wind_1h,
+        'vitesse_vent_predite_1h': target_wind_1h,
 
-        'rain_probability': rain_prob
+        'probabilite_de_pluie': rain_prob
     })
 
     # Retour des deux datasets

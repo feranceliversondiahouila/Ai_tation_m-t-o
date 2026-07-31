@@ -1,0 +1,13 @@
+# Secrets — ne jamais committer une vraie clé API
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Modèle IA généré (régénéré automatiquement au premier lancement)
+backend/edge_model.pkl
+backend/hourly_profile.json
+
+# Base de données locale
+data/weather_local.db

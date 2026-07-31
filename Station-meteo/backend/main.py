@@ -1,20 +1,43 @@
 # ============================================================
-# IMPORTS
+# IMPORTS & GESTION DES CHEMINS
 # ============================================================
+
+import os
+import sys
+from datetime import datetime, timedelta
+from typing import Optional
+from collections import defaultdict
+import requests
+
+# Ajout de la racine au sys.path pour retrouver les modules (voice, data, etc.)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
+
+# Charge backend/.env (OPENAI_API_KEY, etc.) — utile en dehors de Docker,
+# où le "env_file" de docker-compose.yml ne s'applique pas.
+from dotenv import load_dotenv
+load_dotenv(os.path.join(CURRENT_DIR, ".env"))
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-import requests
-from datetime import datetime
-from typing import Optional
-from collections import defaultdict
+from fastapi.responses import Response, JSONResponse
 
 from network_checker import is_network_available
 from ai_model import predict_edge, calculate_smart_indexes
 
+try:
+    from voice.voice import speak_weather
+except Exception as _voice_import_error:
+    print("Module vocal indisponible au démarrage :", _voice_import_error)
+
+    def speak_weather(weather_data):
+        raise RuntimeError("Module vocal indisponible (voir logs au démarrage).")
+
 
 # ============================================================
-# CRÉATION DE L'APPLICATION FASTAPI
+# CRÉATION DE L'APPLICATION FASTAPI (Au tout début)
 # ============================================================
 
 app = FastAPI(
@@ -32,7 +55,7 @@ app.add_middleware(
 
 
 # ============================================================
-# BASE DE DONNÉES LOCALE DES VILLES (accès rapide, sans réseau)
+# BASE DE DONNÉES LOCALE DES VILLES
 # ============================================================
 
 CITIES_COORDS = {
@@ -49,16 +72,12 @@ CITIES_COORDS = {
 
 @app.get("/cities")
 def get_cities():
-    """Liste des villes de sélection rapide, pour les boutons du frontend."""
+    """Liste des villes de sélection rapide pour le frontend."""
     return [
         {"key": key, "name": v["name"], "lat": v["lat"], "lon": v["lon"]}
         for key, v in CITIES_COORDS.items()
     ]
 
-
-# ============================================================
-# CONVERSION D'UNE VILLE EN COORDONNÉES GPS
-# ============================================================
 
 def get_coordinates_from_city(city_name: str):
     city_clean = city_name.strip().lower()
@@ -87,13 +106,6 @@ def get_coordinates_from_city(city_name: str):
     return (50.53, 2.64, city_name.capitalize())
 
 
-# ============================================================
-# TRADUCTION DES CODES MÉTÉO OPEN-METEO (WMO)
-# ============================================================
-# On renvoie un code simplifié utilisé par le frontend
-# pour choisir une icône. Cela évite de dupliquer
-# la logique d'icônes côté serveur ET côté client.
-
 def weathercode_to_label(code: int) -> str:
     mapping = {
         0: "clear", 1: "mostly_clear", 2: "partly_cloudy", 3: "cloudy",
@@ -109,26 +121,33 @@ def weathercode_to_label(code: int) -> str:
     return mapping.get(code, "cloudy")
 
 
+def _day_label(date_str: str, today: datetime.date) -> str:
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return date_str
+    delta = (d - today).days
+    if delta == -2: return "Avant-hier"
+    if delta == -1: return "Hier"
+    if delta == 0: return "Aujourd'hui"
+    if delta == 1: return "Demain"
+    names = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+    return f"{names[d.weekday()]} {d.day}"
+
+
 # ============================================================
-# ROUTE PRINCIPALE
+# LOGIQUE MÉTIER MÉTÉO (HELPER REUTILISABLE)
 # ============================================================
 
-@app.get("/weather")
-def get_weather(
-    city: str = Query("Pointe-Noire", description="Nom de la ville"),
-    lat: Optional[float] = None,
-    lon: Optional[float] = None
-):
+def fetch_weather_logic(city: str = "Pointe-Noire", lat: Optional[float] = None, lon: Optional[float] = None):
     if lat is None or lon is None:
         lat, lon, formatted_city_name = get_coordinates_from_city(city)
     else:
         formatted_city_name = city
 
     online = is_network_available()
+    today = datetime.now().date()
 
-    # ========================================================
-    # MODE CONNECTÉ — vraies données Open-Meteo
-    # ========================================================
     if online:
         try:
             url = (
@@ -146,7 +165,6 @@ def get_weather(
 
             data = requests.get(url, timeout=4.0).json()
 
-            # ---- Météo actuelle ----
             current_temp = data["current"]["temperature_2m"]
             humidity = data["current"]["relative_humidity_2m"]
             wind_speed = data["current"]["wind_speed_10m"]
@@ -155,17 +173,21 @@ def get_weather(
             cloud_cover = data["current"]["cloud_cover"]
             current_weathercode = data["current"]["weather_code"]
 
-            # ---- Lever / coucher du soleil (aujourd'hui = index 2, car past_days=2) ----
-            sunrise_raw = data["daily"]["sunrise"][2] if len(data["daily"]["sunrise"]) > 2 else "N/A"
-            sunset_raw = data["daily"]["sunset"][2] if len(data["daily"]["sunset"]) > 2 else "N/A"
-            sunrise = sunrise_raw.split("T")[1] if "T" in sunrise_raw else sunrise_raw
-            sunset = sunset_raw.split("T")[1] if "T" in sunset_raw else sunset_raw
+            today_str = today.strftime("%Y-%m-%d")
+            
+            today_idx = 2
+            if "time" in data["daily"] and today_str in data["daily"]["time"]:
+                today_idx = data["daily"]["time"].index(today_str)
 
-            # ---- Prévisions journalières (J-2 à J+7, cliquables) ----
-            today_str = datetime.now().strftime("%Y-%m-%d")
+            sunrise_raw = data["daily"]["sunrise"][today_idx] if len(data["daily"]["sunrise"]) > today_idx else "N/A"
+            sunset_raw = data["daily"]["sunset"][today_idx] if len(data["daily"]["sunset"]) > today_idx else "N/A"
+            sunrise = sunrise_raw.split("T")[1][:5] if "T" in str(sunrise_raw) else sunrise_raw
+            sunset = sunset_raw.split("T")[1][:5] if "T" in str(sunset_raw) else sunset_raw
+
             daily_forecast = [
                 {
                     "date": data["daily"]["time"][i],
+                    "label": _day_label(data["daily"]["time"][i], today),
                     "temp_max": data["daily"]["temperature_2m_max"][i],
                     "temp_min": data["daily"]["temperature_2m_min"][i],
                     "rain_prob": data["daily"]["precipitation_probability_max"][i],
@@ -175,7 +197,6 @@ def get_weather(
                 for i in range(len(data["daily"]["time"]))
             ]
 
-            # ---- Données horaires ----
             times = data["hourly"]["time"]
             temps = data["hourly"]["temperature_2m"]
             humi = data["hourly"]["relative_humidity_2m"]
@@ -187,9 +208,6 @@ def get_weather(
             current_idx = times.index(now_str) if now_str in times else 48
             current_rain_prob = precip[current_idx] if current_idx < len(precip) else 0
 
-            # ---- Regroupement horaire PAR JOUR (clic sur un jour = navigation) ----
-            # Permet au frontend d'afficher avant-hier / hier / aujourd'hui / demain
-            # (et tous les autres jours disponibles) en cliquant sur une carte de jour.
             hourly_by_date = defaultdict(list)
             for i, t in enumerate(times):
                 date_key = t.split("T")[0]
@@ -203,8 +221,6 @@ def get_weather(
                     "is_now": (i == current_idx),
                 })
 
-            # ---- Prédiction +1h : on utilise directement la vraie prévision Open-Meteo ----
-            # (plus fiable qu'un modèle local, et évite tout problème de features)
             next_idx = min(current_idx + 1, len(times) - 1)
             predictions_1h = {
                 "temp_1h": temps[next_idx],
@@ -222,7 +238,6 @@ def get_weather(
                 "city": formatted_city_name,
                 "coordinates": {"latitude": lat, "longitude": lon},
                 "today_date": today_str,
-
                 "now": {
                     "time": times[current_idx] if current_idx < len(times) else "N/A",
                     "temperature": current_temp,
@@ -236,47 +251,72 @@ def get_weather(
                     "sunrise": sunrise,
                     "sunset": sunset,
                 },
-
                 "predictions_1h": predictions_1h,
                 "smart_indexes": smart_indexes,
-
                 "daily_forecast": daily_forecast,
                 "hourly_by_date": hourly_by_date,
             }
 
-        except Exception:
+        except Exception as err:
+            print("Error during online fetch:", err)
             online = False
 
-    # ========================================================
-    # MODE HORS LIGNE — Edge AI entraînée sur données IoT réelles
-    # ========================================================
+    # Mode Offline — Edge AI entraînée sur données IoT réelles
     now_dt = datetime.now()
-    edge_result = predict_edge(now_dt.hour)
-    simulated_now = edge_result["now_simulated"]
+    ai_result = predict_edge(now_dt.hour)
+    simulated_now = ai_result["now_simulated"]
 
     return {
         "source": "Offline (Edge AI - modèle entraîné sur capteurs IoT réels)",
         "city": formatted_city_name,
         "coordinates": {"latitude": lat, "longitude": lon},
         "today_date": now_dt.strftime("%Y-%m-%d"),
-
         "now": {
             "temperature": simulated_now["temperature"],
             "humidity": simulated_now["humidity"],
-            # Le dataset IoT réel ne contient ni vent ni pression (capteurs d'intérieur) :
-            # valeurs par défaut clairement documentées, pas mesurées.
+            # Le dataset IoT réel ne contient ni vent ni pression (capteurs
+            # d'intérieur) : valeurs par défaut, clairement documentées ici.
             "wind_speed": 10.0,
             "wind_direction": 180,
             "pressure": 1013,
             "cloud_cover": 40,
-            "rain_probability": edge_result["predictions_1h"]["rain_probability"],
+            "rain_probability": ai_result["predictions_1h"]["rain_probability"],
             "weather_label": "cloudy",
             "sunrise": "06:00",
             "sunset": "21:00",
         },
-
-        "predictions_1h": edge_result["predictions_1h"],
-        "smart_indexes": edge_result["smart_indexes"],
+        "predictions_1h": ai_result["predictions_1h"],
+        "smart_indexes": ai_result["smart_indexes"],
         "daily_forecast": [],
         "hourly_by_date": {},
     }
+
+
+# ============================================================
+# ROUTES FASTAPI
+# ============================================================
+
+@app.get("/weather")
+def get_weather(
+    city: str = Query("Pointe-Noire", description="Nom de la ville"),
+    lat: Optional[float] = None,
+    lon: Optional[float] = None
+):
+    return fetch_weather_logic(city=city, lat=lat, lon=lon)
+
+
+@app.post("/speak")
+def speak(city: str = "Pointe-Noire"):
+    weather = fetch_weather_logic(city=city)
+    try:
+        audio = speak_weather(weather)
+    except Exception as err:
+        print("Erreur lors de la génération du briefing vocal :", err)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Briefing vocal indisponible.",
+                "details": "Vérifie que OPENAI_API_KEY est bien configurée dans backend/.env",
+            },
+        )
+    return Response(content=audio, media_type="audio/mpeg")
