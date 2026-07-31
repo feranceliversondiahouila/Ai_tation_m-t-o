@@ -1,0 +1,21 @@
+# Le frontend est servi par le conteneur nginx (bind mount dans
+# docker-compose.yml) : inutile de l'embarquer dans l'image backend.
+frontend/
+
+# Python
+__pycache__/
+*.pyc
+
+# Modèle IA : régénéré automatiquement au premier lancement
+# du conteneur (voir ai_model.train_and_save_model).
+backend/edge_model.pkl
+backend/hourly_profile.json
+
+# Secrets & environnement local
+backend/.env
+.env
+
+# Divers
+.git/
+.gitignore
+README.md

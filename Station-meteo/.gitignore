@@ -1,13 +1,22 @@
-# Secrets — ne jamais committer une vraie clé API
-backend/.env
-
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
 
-# Modèle IA généré (régénéré automatiquement au premier lancement)
+# Environnements virtuels
+.venv/
+venv/
+
+# Modèle IA généré (régénéré automatiquement au premier lancement,
+# voir ai_model.train_and_save_model)
 backend/edge_model.pkl
 backend/hourly_profile.json
 
-# Base de données locale
-data/weather_local.db
+# Secrets — si un .env est ajouté un jour, ne jamais le committer
+.env
+backend/.env
+
+# Éditeurs / OS
+.vscode/
+.idea/
+.DS_Store

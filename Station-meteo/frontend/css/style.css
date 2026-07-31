@@ -32,6 +32,7 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 20px;
+    box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.45);
 }
 
 /* ===================== TOPBAR ===================== */
@@ -171,7 +172,18 @@ body {
     gap: 12px;
 }
 
-.card { background: var(--panel); padding: 16px; border-radius: 12px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); min-width: 0; }
+.card {
+    background: var(--panel);
+    padding: 16px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--border);
+    min-width: 0;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.card:hover { transform: translateY(-2px); border-color: var(--blue); }
 .card-icon { font-size: 1.8rem; flex-shrink: 0; }
 .card-title { display: block; color: var(--text-dim); font-size: 0.78rem; }
 .card-value { font-size: 1.15rem; font-weight: bold; overflow-wrap: break-word; }

@@ -4,36 +4,22 @@
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 from collections import defaultdict
 import requests
 
-# Ajout de la racine au sys.path pour retrouver les modules (voice, data, etc.)
+# Ajout de la racine au sys.path pour retrouver les modules (data, etc.)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CURRENT_DIR)
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
-# Charge backend/.env (OPENAI_API_KEY, etc.) — utile en dehors de Docker,
-# où le "env_file" de docker-compose.yml ne s'applique pas.
-from dotenv import load_dotenv
-load_dotenv(os.path.join(CURRENT_DIR, ".env"))
-
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, JSONResponse
 
 from network_checker import is_network_available
 from ai_model import predict_edge, calculate_smart_indexes
-
-try:
-    from voice.voice import speak_weather
-except Exception as _voice_import_error:
-    print("Module vocal indisponible au démarrage :", _voice_import_error)
-
-    def speak_weather(weather_data):
-        raise RuntimeError("Module vocal indisponible (voir logs au démarrage).")
 
 
 # ============================================================
@@ -48,7 +34,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # allow_credentials doit rester à False tant que allow_origins="*" :
+    # les navigateurs rejettent la combinaison "*" + credentials=True.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -303,20 +291,3 @@ def get_weather(
     lon: Optional[float] = None
 ):
     return fetch_weather_logic(city=city, lat=lat, lon=lon)
-
-
-@app.post("/speak")
-def speak(city: str = "Pointe-Noire"):
-    weather = fetch_weather_logic(city=city)
-    try:
-        audio = speak_weather(weather)
-    except Exception as err:
-        print("Erreur lors de la génération du briefing vocal :", err)
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "Briefing vocal indisponible.",
-                "details": "Vérifie que OPENAI_API_KEY est bien configurée dans backend/.env",
-            },
-        )
-    return Response(content=audio, media_type="audio/mpeg")
